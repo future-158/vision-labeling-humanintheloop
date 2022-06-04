@@ -70,42 +70,62 @@ def collate_fn(batch):
     }
 
 metric = load_metric("accuracy")
-def compute_metrics(p):
-    return metric.compute(predictions=np.argmax(p.predictions, axis=1), references=p.label_ids)
+# def compute_metrics(p):
+#     return metric.compute(predictions=np.argmax(p.predictions, axis=1), references=p.label_ids)
 
+# def compute_metrics(pred):
+#     labels = pred.label_ids
+#     preds = pred.predictions.argmax(-1)
+#     precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
+#     acc = accuracy_score(labels, preds)
+#     return {
+#         'accuracy': acc,
+#         'f1': f1,
+#         'precision': precision,
+#         'recall': recall
+#     }
+
+K = 5
+LABELS = [ int(l) for l in prepared_train_ds.features['label'].names]
+THRESHOLD = 0.5
 def compute_metrics(pred):
     labels = pred.label_ids
-    preds = pred.predictions.argmax(-1)
-    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
+    # preds = pred.predictions.argmax(-1)
+    num_samples = len(labels)
+
+    # TP_at_1 = top_k_accuracy_score(labels, pred.predictions, k=1, normalize=False, labels=LABELS)
+    # TP_at_k = top_k_accuracy_score(labels, pred.predictions, k = K, normalize=False, labels=LABELS) 
+    # TP =  TP_at_1 + (TP_at_k - TP_at_1) / K
+    # FN =  FP = num_samples - TP_at_k
+    # FN =  FP = num_samples - TP_at_k
+    # TP =  TP_at_1 + (TP_at_k - TP_at_1) / K
+    # FN =  FP = num_samples - TP_at_k
+    # buzzni = TP / (TP + FP)
+
+
+    proba = np.exp(pred.predictions) / np.exp(pred.predictions).sum(axis=1, keepdims=True)
+    preds = proba.argmax(axis=-1)
+    sure = proba.max(axis=-1) > THRESHOLD
+    TP_at_1 = (labels[sure] ==  preds[sure]).sum()
+    FP_at_1 = (labels[sure] !=  preds[sure]).sum()
+    TP_at_k = top_k_accuracy_score(labels[~sure], proba[~sure], k = K, normalize=False, labels=LABELS) 
+    TP =  TP_at_1 + TP_at_k / K
+
+    num_sure = sure.sum()
+    num_unsure = (~sure).sum()
+    FP_at_k = num_unsure - TP_at_k
+    FP = FP_at_1 * K + FP_at_k
+    buzzni = TP / (TP + FP)
+
     acc = accuracy_score(labels, preds)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
     return {
         'accuracy': acc,
         'f1': f1,
         'precision': precision,
-        'recall': recall
+        'recall': recall,
+        'buzzni': buzzni
     }
-
-# def compute_metrics(k=5):
-#     def inner(pred):
-#         labels = pred.label_ids
-#         preds = pred.predictions.argmax(-1)
-
-#         num_samples = len(preds)
-#         TP_at_1 = top_k_accuracy_score(labels, pred.predictions, k=1, normalize=False)
-#         TP_at_k = top_k_accuracy_score(labels, pred.predictions, k = k, normalize=False) 
-#         TP =  TP_at_1 + (TP_at_k - TP_at_1) / k
-#         FN =  FP = num_samples - TP_at_k
-#         buzzni = TP/ (TP + FP)
-#         precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
-#         acc = accuracy_score(labels, preds)
-#         return {
-#             'accuracy': acc,
-#             'f1': f1,
-#             'precision': precision,
-#             'recall': recall,
-#             'buzzni': buzzni
-#         }
-#     return inner
 
 
 labels = prepared_train_ds.features['label'].names
@@ -122,6 +142,7 @@ training_args = TrainingArguments(
   per_device_train_batch_size=PER_DEVICE_TRAIN_BATCH_SIZE, # default 16
   per_device_eval_batch_size=PER_DEVICE_EVAL_BATCH_SIZE, # default 16
   evaluation_strategy="steps",
+#   eval_strategy='epoch',
   num_train_epochs=20, # default 10
   fp16=True,
   save_steps=steps_per_epoch,
@@ -133,7 +154,7 @@ training_args = TrainingArguments(
   push_to_hub=False,
   report_to='tensorboard',
   load_best_model_at_end=True,
-  metric_for_best_model='eval_loss'
+  metric_for_best_model='eval_buzzni'
 )
 
 trainer = Trainer(
