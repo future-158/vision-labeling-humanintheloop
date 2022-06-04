@@ -18,10 +18,13 @@ from sklearn.metrics import top_k_accuracy_score
 wd = '/content/drive/MyDrive/project/buzzni'
 os.chdir(wd)
 
-PRETRAIN_OUTPUT_DIR = './mae_pretrain'
-FINETUNE_OUTPUT_DIR = "./mae_finetune"
-PER_DEVICE_TRAIN_BATCH_SIZE = 64
-PER_DEVICE_EVAL_BATCH_SIZE = 128
+PRETRAIN_OUTPUT_DIR = './exp/hf_mae/cpkt_pretrain'
+FINETUNE_OUTPUT_DIR = "./exp/hf_mae/ckpt_finetune"
+PER_DEVICE_TRAIN_BATCH_SIZE = 32
+PER_DEVICE_EVAL_BATCH_SIZE = 64
+K = 5
+THRESHOLD = 0.5
+LOAD_CUSTOM_FODLER = False
 
 # ds = load_dataset("imagefolder", data_dir="./data", split="test")
 train_dataset = load_dataset("imagefolder", data_dir="./data", split='train')
@@ -29,7 +32,10 @@ train_dataset = load_dataset("imagefolder", data_dir="./data", split='train')
 # validation_dataset = load_dataset("imagefolder", data_dir="./data", split='train[80%:]')
 test_dataset = load_dataset("imagefolder", data_dir="./data", split='test')
 
-model_name_or_path = PRETRAIN_OUTPUT_DIR
+if LOAD_CUSTOM_FODLER:
+    model_name_or_path = PRETRAIN_OUTPUT_DIR
+else:
+    model_name_or_path = "facebook/vit-mae-base"
 feature_extractor = ViTFeatureExtractor.from_pretrained(model_name_or_path)
 
 def process_example(example):
@@ -85,9 +91,10 @@ metric = load_metric("accuracy")
 #         'recall': recall
 #     }
 
-K = 5
+
 LABELS = [ int(l) for l in prepared_train_ds.features['label'].names]
-THRESHOLD = 0.5
+
+
 def compute_metrics(pred):
     labels = pred.label_ids
     # preds = pred.predictions.argmax(-1)

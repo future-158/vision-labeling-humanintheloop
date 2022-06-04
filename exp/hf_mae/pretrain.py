@@ -29,9 +29,8 @@ os.chdir(wd)
 # for folder in folders:
 #     new_name = folder.parent / f'{int(folder.name):02d}'
 #     folder.rename(new_name)
-
-PRETRAIN_OUTPUT_DIR = './mae_pretrain'
-FINETUNE_OUTPUT_DIR = "./mae_finetune"
+PRETRAIN_OUTPUT_DIR = './exp/hf_mae/cpkt_pretrain'
+FINETUNE_OUTPUT_DIR = "./exp/hf_mae/ckpt_finetune"
 PER_DEVICE_TRAIN_BATCH_SIZE = 32
 PER_DEVICE_EVAL_BATCH_SIZE = 64
 
@@ -69,9 +68,7 @@ def collate_fn(batch):
         'pixel_values': torch.stack([x['pixel_values'] for x in batch])
     }
 
-
 steps_per_epoch = prepared_ds['train'].shape[0] // PER_DEVICE_TRAIN_BATCH_SIZE
-
 training_args = TrainingArguments(
   output_dir=PRETRAIN_OUTPUT_DIR,
   per_device_train_batch_size=PER_DEVICE_TRAIN_BATCH_SIZE, # default 16
