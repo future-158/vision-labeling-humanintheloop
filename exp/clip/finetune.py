@@ -1,9 +1,8 @@
-#pip install ftfy regex tqdm datasets transformers omegaconf
-#pip install git+https://github.com/openai/CLIP.git
+#pip install ftfy regex tqdm datasets transformers omegaconf git+https://github.com/openai/CLIP.git optuna
 import os
 from collections import OrderedDict
-import clip
 from pathlib import Path
+
 import IPython.display
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,20 +10,20 @@ import pandas as pd
 import skimage
 import torch
 import tqdm
-from datasets import load_dataset, load_metric, concatenate_datasets
+from datasets import concatenate_datasets, load_dataset, load_metric
+from omegaconf import OmegaConf
 from PIL import Image
 from pkg_resources import packaging
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import (accuracy_score, confusion_matrix,
-                             precision_recall_fscore_support,
+from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score,
+                             confusion_matrix, precision_recall_fscore_support,
                              top_k_accuracy_score)
-from torch import nn, optim
-from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from sklearn.preprocessing import normalize
+from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import CIFAR100
-from omegaconf import OmegaConf
-
+import optuna
+import clip
 
 wd = '/content/drive/MyDrive/project/buzzni'
 os.chdir(wd)
@@ -52,14 +51,13 @@ model.eval()
 # input_resolution = model.visual.input_resolution
 # context_length = model.context_length
 # vocab_size = model.vocab_size
-
 test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
-test_ds = test_ds.add_column('uid', list(range(len(test_ds))))
-
 ds = load_dataset("imagefolder", data_dir="./data", split='train')
-ds = ds.add_column('uid', list(range(len(ds))))
 
-"""
+# ds['test'] = ds['test'].add_column('uid', list(range(len(ds['test']))))
+# ds = ds.add_column('uid', list(range(len(ds))))
+
+"""dataset methods
 rename_columns
 save_to_disk
 select
@@ -69,7 +67,16 @@ shuffle
 sort
 to_pandas
 train_test_split
+update
+with_transform
 """ 
+
+# actually it is just class_id. but sklearn name this as labels
+class_ids = [int(x) for x in np.sort(np.unique(ds['label']))]
+
+
+# true labels
+LABELS = ds.features['label'].names
 
 id2txt = (
     pd.read_csv('data/catalog.csv', index_col=['index'])
@@ -78,10 +85,8 @@ id2txt = (
     .str.strip()
     .to_dict()
 )
-
-
-LABELS = [int(x) for x in np.sort(np.unique(ds['label']))]
 id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
+
 text_tokens = clip.tokenize(id2txt.values()).cuda()
 
 new_column = [id2txt[index] for index in ds['label']]
@@ -90,23 +95,26 @@ ds = ds.add_column("txt", new_column)
 new_column = [id2txt[index] for index in test_ds['label']]
 test_ds = test_ds.add_column("txt", new_column)
 
-
 ds = ds.shuffle(0).train_test_split(test_size=0.2)
 
-# split test_ds to train / test
-# test_ds[test]: real test set
-# test_ds[train]: unlabeled set. for each epoch, human in the loop train / test
+# split ds['test'] to train / test
+# ds['test'][test]: real test set
+# ds['test'][train]: unlabeled set. for each epoch, human in the loop train / test
 
 # every epoch only 100 uncertain case studied. because time limit. this is also hyper parameter.
 
 def compute_metrics(dataset, probs):
-    labels = np.array(dataset['label'])
+    # labels = np.array(dataset['label'])
+    labels = np.array(dataset[:]['label'])
     num_samples = len(labels)
     preds = probs.argmax(axis=-1)
     certain = probs.max(axis=-1) > THRESHOLD
     TP_at_1 = (labels[certain] ==  preds[certain]).sum()
+
+    # top_1으로 못맞춘 것들
     FP_at_1 = (labels[certain] !=  preds[certain]).sum()
-    TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=LABELS) 
+
+    TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
     TP =  TP_at_1 + TP_at_k / K
 
     # label
@@ -119,20 +127,33 @@ def compute_metrics(dataset, probs):
     # drop    
     num_certain = certain.sum()
     num_uncertain = (~certain).sum()
+
+    # top k에서 못맞춘 것들
     FP_at_k = num_uncertain - TP_at_k
+
+    # top 1으로 못맞춘 경우 penalty가 더 들어감.
     FP = FP_at_1 * K + FP_at_k
+
     buzzni = TP / (TP + FP)
 
     acc = accuracy_score(labels, preds)
     precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
     return {
         'accuracy': acc,
-        'acc_at_k': top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=True, labels=LABELS), 
+        'acc_at_k': top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=True, labels=class_ids), 
         'f1': f1,
         'precision': precision,
         'recall': recall,
         'buzzni': buzzni
     }
+
+
+def transform(example_batch):
+    example_batch['image'] = [preprocess(image.resize((224,224)).convert('RGB')) for image in example_batch['image']]
+    return example_batch
+
+ds = ds.with_transform(transform)
+test_ds = test_ds.with_transform(transform)
 
 
 def eval_epoch(dataset, model, after_transform=False, human_in_the_loop=False):
@@ -143,19 +164,22 @@ def eval_epoch(dataset, model, after_transform=False, human_in_the_loop=False):
 
     image_features = []
     for step in tqdm.trange(steps):
-        if after_transform:
-            image_input = torch.stack(dataset[step*batch_size:(step+1)*batch_size]['image']).cuda()
+        # if after_transform:
+        #     image_input = torch.stack(dataset[step*batch_size:(step+1)*batch_size]['image']).cuda()
 
-        else:
-            images = [
-                preprocess(image.resize((224,224)).convert('RGB'))
-                for image
-                in dataset[step*batch_size:(step+1)*batch_size]['image']]
-            image_input = torch.tensor(np.stack(images)).cuda()            
+        # else:
+        #     images = [
+        #         preprocess(image.resize((224,224)).convert('RGB'))
+        #         for image
+        #         in dataset[step*batch_size:(step+1)*batch_size]['image']]
+        # image_input = torch.tensor(np.stack(dataset['image'])).cuda()              
+        # image_input = torch.stack(dataset['image']).cuda()              
+        image_input = torch.stack(dataset[step*batch_size:(step+1)*batch_size]['image']).cuda()
         with torch.no_grad():
             _image_features = model.encode_image(image_input).float()
             _image_features /= _image_features.norm(dim=-1, keepdim=True)
             image_features.append(_image_features)
+    
     image_features = torch.cat(image_features)
 
     with torch.no_grad():
@@ -171,24 +195,31 @@ def eval_epoch(dataset, model, after_transform=False, human_in_the_loop=False):
         if human_in_the_loop:
             certain = text_props_numpy.max(axis=-1) > THRESHOLD
             preds = text_props_numpy.argmax(axis=-1)
-            # to_filter = np.concatenate(
-            #     [
-            #         np.array(dataset['uid'])[certain],
-            #         np.array(dataset['uid'])[~certain][:100]
-            #     ]
-            # )
             # appendix_dataset = dataset.filter(lambda item: item['uid'] in to_filter)
             # dataset = dataset.filter(lambda item: item['uid'] not in to_filter)            
-            # small_dataset = dataset.select([0, 10, 20, 30, 40, 50])
             # even_dataset = dataset.filter(lambda example, idx: idx % 2 == 0, with_indices=True)
             # bert_dataset = concatenate_datasets([bookcorpus, wiki])
-            dataset = dataset.remove_columns("label").add_column('label', list(np.where(certain, preds.flatten(), dataset['label'])))
 
-            # persistence metric? 
-            appendix_dataset = dataset.select(np.concatenate([np.flatnonzero(certain), np.flatnonzero(~certain)[:UPDATE_SIZE]]))
-            dataset = dataset.select(np.flatnonzero(~certain)[UPDATE_SIZE:])
+            
+
+            # uncertain 데이터의 경우 역설적으로  human이 확인하므로 certain해 져서 train_dataset에 permanently 추가됨
+            permanent_appendix_dataset = dataset.select(np.flatnonzero(~certain)[:UPDATE_SIZE])
+            
+            # certain의 경우 중간에 human 검수 과정이 들어가지 않으므로 매 epoch마다 다시 계산해서 넣어줌
+            temporary_appendix_dataset = dataset.select(np.flatnonzero(certain))
+
+            # update label to top_1 prediction values
+            temporary_appendix_dataset = (
+                temporary_appendix_dataset
+                .remove_columns("label")
+                .add_column('label', list(preds[certain]))
+            )
+
+            # remove permanent_appendix_dataset from dataset
+            update_select = np.concatenate([np.flatnonzero(certain),np.flatnonzero(~certain)[UPDATE_SIZE:]])
+            dataset = dataset.select(update_select)
             model.train()
-            return appendix_dataset, dataset
+            return permanent_appendix_dataset, temporary_appendix_dataset, dataset
             
         # _, yhat = text_probs.cpu().topk(1, dim=-1)
         # cm = confusion_matrix(ds['label'], yhat.flatten())
@@ -202,10 +233,6 @@ def eval_epoch(dataset, model, after_transform=False, human_in_the_loop=False):
         print(metrics)
         return metrics
 
-print('train score: ', eval_epoch(ds['train'], model))
-print('test score: ', eval_epoch(ds['test'], model))
-# print('test2 score: ', eval_epoch(ds['test2']))
-
 class ImageCaptionDataset(Dataset):
     def __init__(self, ds):
         self.ds = ds
@@ -213,7 +240,8 @@ class ImageCaptionDataset(Dataset):
         return len(self.ds)
 
     def __getitem__(self, idx):
-        images = preprocess(self.ds[idx]['image'])
+        # images = preprocess(self.ds[idx]['image'])
+        images = self.ds[idx]['image']
         caption = clip.tokenize(self.ds[idx]['txt'])[0]
         return images,caption
 
@@ -227,20 +255,19 @@ train_dataloader = DataLoader(
 
 # valid_dataset = ImageCaptionDataset(ds['test'])
 # valid_dataloader = DataLoader(valid_dataset,batch_size = BATCH_SIZE) #Define your own dataloader
-
 #https://github.com/openai/CLIP/issues/57
+
 def convert_models_to_fp32(model): 
     for p in model.parameters(): 
         p.data = p.data.float() 
         p.grad.data = p.grad.data.float() 
 
-model.train()
-clip.model.convert_weights(model) # convert to fp16
-
 loss_img = nn.CrossEntropyLoss()
 loss_txt = nn.CrossEntropyLoss()
 
 # torch.dot(loss, torch.from_numpy(sample_weight).float()) / len(y_pred)
+# model.train()
+# clip.model.convert_weights(model) # convert to fp16
 optimizer = optim.Adam(model.parameters(), lr=5e-5,betas=(0.9,0.98),eps=1e-6,weight_decay=0.2) #Params from paper
 
 def train_epoch(dl, model):
@@ -258,64 +285,80 @@ def train_epoch(dl, model):
         optimizer.step()
         clip.model.convert_weights(model) # back to fp16
 
-history = []
 
+ds['eval'] = ds['test']
 
 if HUMAN_IN_THE_LOOP:
-    test_ds = test_ds.shuffle(0).train_test_split(test_size=0.2)
-for epoch in range(EPOCHS):
-    if HUMAN_IN_THE_LOOP:
-        if epoch > WARMUP_EPOCH:
-            _ = train_epoch(train_dataloader, model)
-            eval_metrics = eval_epoch(ds['test'], model)
-            test_metrics = eval_epoch(test_ds['test'], model)
-            appendix, updated = eval_epoch(test_ds['train'], model, human_in_the_loop=True)
-            
-            if len(updated): test_ds['train'] = updated
-            if len(appendix):
-                appendix_dataset = ImageCaptionDataset(appendix)
-                # appendix_weights = torch.ones(len(appendix_dataset), dtype=torch.float32) / DENOMINATOR
-                updated_dataset = torch.utils.data.ConcatDataset([train_dataset, appendix_dataset])
-                # train_dataloader = DataLoader(updated_dataset,batch_size = BATCH_SIZE) #Define your own dataloader
-                # sample_weights = torch.cat( [sample_weights, appendix_weights])
+    test_ds = test_ds.train_test_split(shuffle=True, seed=0, test_size=0.2)
+    ds['unlabel'] = test_ds['train']
+    ds['test'] = test_ds['test']
 
+else:
+    ds['test'] = test_ds
+    ds['unlabel']  = ds['eval'].filter(lambda x: False) # empty dataset    
+
+del test_ds
+
+def objective(trial):
+    history = []
+    lr = model.parameters(), trial.suggest_float("lr", 1e-5, 1e-4, log=True)
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=lr,
+        betas=(0.9,0.98),
+        eps=1e-6,
+        weight_decay=0.2
+        ) #Params from paper
+
+    for epoch in range(-1, EPOCHS):
+        # save untrained result
+        eval_metrics = eval_epoch(ds['eval'], model)
+        test_metrics = eval_epoch(ds['test'], model)
+
+        history.append({
+            'epoch': epoch,
+            'train_size': len(train_dataset), # variadic 
+            'eval_size': len(ds['eval']), # fixed
+            'unlabel_size': len(ds['unlabel']), # fixed
+            'test_size': len(ds['test']), # fixed
+            **{f'eval_{k}':v for k, v in eval_metrics.items()},
+            **{f'test_{k}':v for k, v in test_metrics.items()},
+        })        
+        epoch += 1
+        _ = train_epoch(train_dataloader, model)
+
+        if HUMAN_IN_THE_LOOP and epoch > WARMUP_EPOCH:
+            # append pseudo labeled dataset with human in the loop step(mimic)
+            permanent_appendix_dataset, temporary_appendix_dataset, dataset = eval_epoch(ds['unlabel'], model, human_in_the_loop=True)
+            # if len(updated): ds['test']['train'] = updated
+            ds['unlabel'] = dataset
+            if len(permanent_appendix_dataset):
+                permanent_appendix_dataset = ImageCaptionDataset(permanent_appendix_dataset)
+                temporary_appendix_dataset = ImageCaptionDataset(temporary_appendix_dataset)
+                train_dataset = torch.utils.data.ConcatDataset([train_dataset, permanent_appendix_dataset])
                 train_dataloader = DataLoader(
-                    updated_dataset,
+                    torch.utils.data.ConcatDataset([train_dataset, temporary_appendix_dataset]), # not saving
                     batch_size = BATCH_SIZE,
                     # sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True, generator=torch.Generator().manual_seed(42))
                     ) #Define your own dataloader
-
+                
+                # sanity check.
                 _ = next(iter(train_dataloader))
-        else:
-            _ = train_epoch(train_dataloader, model)
-            eval_metrics = eval_epoch(ds['test'], model)
-            test_metrics = eval_epoch(test_ds['test'], model)            
-            # bert_dataset = concatenate_datasets([ds['train'], appendix])    
 
-    else:
-        _ = train_epoch(train_dataloader, model)
-        eval_metrics = eval_epoch(ds['test'], model)
-        test_metrics = eval_epoch(test_ds, model)
+    history_dataframe = pd.DataFrame(history)
+    print(history_dataframe)
+    # dest = Path(cfg.catalog.result) 
+    dest = dest.parent / f'{dest.stem}_{trial.number}{dest.suffix}'
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    history_dataframe.to_csv(dest, index=False)
+    best_score = history_dataframe['eval_buzzni'].max()
+    return float(best_score)
 
-
-    history.append({
-        'epoch': epoch,
-        'train_size': len(ds['train']),
-        'eval_size': len(ds['test']),
-        'unlabel_size': len(test_ds['train']),
-        'test_size': len(test_ds['test']),
-        **{f'eval_{k}':v for k, v in eval_metrics.items()},
-        **{f'test_{k}':v for k, v in test_metrics.items()},
-    })        
-
-history_dataframe = pd.DataFrame(history)
-print(history_dataframe)
-
-dest = Path(cfg.catalog.result) 
-Path(dest).mkdir(parents=True, exist_ok=True)
-history_dataframe.to_csv(dest, index=False)
-
-
+# study = optuna.create_study(directions=["minimize", "maximize"])
+study = optuna.create_study(directions=["maximize"])
+study.optimize(objective, n_trials=5, timeout=3000)
+print("Number of finished trials: ", len(study.trials))
+# optuna.visualization.plot_pareto_front(study, target_names=["FLOPS", "accuracy"])
 
 
 
