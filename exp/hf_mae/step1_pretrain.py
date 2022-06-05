@@ -19,7 +19,7 @@ from omegaconf import OmegaConf
 wd = '/content/drive/MyDrive/project/buzzni'
 os.chdir(wd)
 
-cfg = OmegaConf.load('exp/hf_mae/config.yaml')
+cfg = OmegaConf.load('hf_mae_config.yaml')
 EXP_NAME = cfg.EXP_NAME
 MODEL_NAME = cfg.MODEL_NAME
 PER_DEVICE_TRAIN_BATCH_SIZE =  cfg.PER_DEVICE_TRAIN_BATCH_SIZE

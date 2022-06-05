@@ -1,8 +1,8 @@
 MODEL_NAME: google/vit-base-patch16-224-in21k
 EXP_NAME: google_domain_adaptation
 LOAD_DOMAIN_ADAPTION: False
-PRETRAIN_OUTPUT_DIR: exp/hf_mae/cpkt_pretrain/${EXP_NAME}
-FINETUNE_OUTPUT_DIR: exp/hf_mae/ckpt_finetune/${EXP_NAME}
+PRETRAIN_OUTPUT_DIR: /tmp/exp/hf_mae/ckpt_pretrain/${EXP_NAME}
+FINETUNE_OUTPUT_DIR: /tmp/exp/hf_mae/ckpt_finetune/${EXP_NAME}
 RESULT_DIR: result/${EXP_NAME}
 PER_DEVICE_TRAIN_BATCH_SIZE: 32
 PER_DEVICE_EVAL_BATCH_SIZE: 64

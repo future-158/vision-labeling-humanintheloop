@@ -21,7 +21,7 @@ from omegaconf import OmegaConf
 wd = '/content/drive/MyDrive/project/buzzni'
 os.chdir(wd)
 
-cfg = OmegaConf.load('exp/hf_mae/config.yaml')
+cfg = OmegaConf.load('hf_mae_config.yaml')
 
 EXP_NAME = cfg.EXP_NAME
 PER_DEVICE_TRAIN_BATCH_SIZE =  cfg.PER_DEVICE_TRAIN_BATCH_SIZE
@@ -38,19 +38,13 @@ PRETRAIN_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 FINETUNE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-
-
-
-
-
 # ds = load_dataset("imagefolder", data_dir="./data", split="test")
 train_dataset = load_dataset("imagefolder", data_dir="./data", split='train')
 # train_dataset = load_dataset("imagefolder", data_dir="./data", split='train[:80%]')
 # validation_dataset = load_dataset("imagefolder", data_dir="./data", split='train[80%:]')
 test_dataset = load_dataset("imagefolder", data_dir="./data", split='test')
 
-if LOAD_CUSTOM_FODLER:
+if LOAD_DOMAIN_ADAPTION:
     model_name_or_path = PRETRAIN_OUTPUT_DIR
 else:
     # model_name_or_path = "facebook/vit-mae-base"

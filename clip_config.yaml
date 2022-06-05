@@ -1,0 +1,10 @@
+exp_name: clip_finetune_hil
+
+THRESHOLD: 0.5
+K: 5
+EPOCHS: 10
+BATCH_SIZE: 32
+HUMAN_IN_THE_LOOP: true
+
+catalog:
+  result: result/clip_${exp_name}.csv
