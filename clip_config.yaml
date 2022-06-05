@@ -1,10 +1,12 @@
+API_VERSION: 1.1
 exp_name: clip_finetune_hil
 
-THRESHOLD: 0.5
+THRESHOLD: 0.8
 K: 5
 EPOCHS: 10
 BATCH_SIZE: 32
 HUMAN_IN_THE_LOOP: true
 
 catalog:
-  result: result/clip_${exp_name}.csv
+  result: result/${API_VERSION}/clip_${exp_name}.csv
+  trials_dataframe: result/${API_VERSION}/clip_${exp_name}_trials_dataframe.csv
