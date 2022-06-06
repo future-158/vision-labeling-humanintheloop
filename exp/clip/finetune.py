@@ -258,7 +258,7 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     )
 
     # remove permanent_appendix_dataset from dataset
-    whole_index = np.arange(text_probs_numpy_li.size)
+    whole_index = np.arange(text_probs_numpy.size)
     update_index = np.setdiff1d(whole_index, uncertain_index)
 
     # drop uncertain_index
