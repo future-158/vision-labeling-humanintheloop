@@ -24,8 +24,11 @@ from torchvision.datasets import CIFAR100
 import optuna
 import clip
 
+
+"""run after vscode restarting mass up project folder. 
 wd = '/content/drive/MyDrive/project/buzzni'
 os.chdir(wd)
+"""
 
 cfg = OmegaConf.load('clip_config.yaml')
 THRESHOLD = cfg.THRESHOLD
@@ -48,12 +51,12 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("ViT-B/32",device=device,jit=False) #Must set jit=False for training
 model.eval()
 
-
 # input_resolution = model.visual.input_resolution
 # context_length = model.context_length
 # vocab_size = model.vocab_size
 test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
 ds = load_dataset("imagefolder", data_dir="./data", split='train')
+class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
 
 if DEBUG:
     test_ds = test_ds.select(range(100))
@@ -77,12 +80,11 @@ with_transform
 """ 
 
 # actually it is just class_id. but sklearn name this as labels
-class_ids = [int(x) for x in np.sort(np.unique(ds['label']))]
+
 
 
 # true labels
 LABELS = ds.features['label'].names
-
 id2txt = (
     pd.read_csv('data/catalog.csv', index_col=['index'])
     ['en_final']
@@ -92,7 +94,7 @@ id2txt = (
 )
 id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
 
-text_tokens = clip.tokenize(id2txt.values()).cuda()
+text_tokens = clip.tokenize(id2txt.values()).to(device)
 
 new_column = [id2txt[index] for index in ds['label']]
 ds = ds.add_column("txt", new_column)
@@ -203,7 +205,7 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
         text_features /= text_features.norm(dim=-1, keepdim=True)
 
         for step in tqdm.trange(steps): 
-            image_input = torch.tensor(np.stack(dataset[step*batch_size:(step+1)*batch_size]['image'])).cuda()
+            image_input = torch.tensor(np.stack(dataset[step*batch_size:(step+1)*batch_size]['image'])).to(device)
             image_features = model.encode_image(image_input).float()
             image_features /= image_features.norm(dim=-1, keepdim=True)
         
