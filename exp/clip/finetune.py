@@ -124,9 +124,9 @@ def transforms(examples):
     examples['image'] =  [preprocess(image.resize((224,224)).convert('RGB')) for image in examples['image']]    
     return examples
 
-# ds = ds.map(transforms, batched=True, batch_size=256)
+ds = ds.map(transforms, batched=True, batch_size=256)
 
-ds.set_transform(transforms)
+# ds.set_transform(transforms)
 
 # updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)
 # updated_dataset['sentence2'][:5]
