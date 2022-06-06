@@ -160,7 +160,9 @@ def compute_metrics(dataset, probs):
     # top_1으로 못맞춘 것들
     FP_at_1 = (labels[certain] !=  preds[certain]).sum()
 
-    TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
+    # TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
+    TP_at_k = top_k_accuracy_score(labels, probs, k = K, normalize=False, labels=class_ids) 
+    TP_at_k -= TP_at_1
     TP =  TP_at_1 + TP_at_k / K
 
     # label
@@ -251,11 +253,12 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     temporary_appendix_dataset = dataset.select(certain_index)
 
     # update label to top_1 prediction values
-    temporary_appendix_dataset = (
-        temporary_appendix_dataset
-        .remove_columns("label")
-        .add_column('label', list(preds[certain]))
-    )
+    if temporary_appendix_dataset.shape[0] > 0:
+        temporary_appendix_dataset = (
+            temporary_appendix_dataset
+            .remove_columns("label")
+            .add_column('label', list(preds[certain]))
+        )
 
     # remove permanent_appendix_dataset from dataset
     whole_index = np.arange(text_probs_numpy.shape[0])
@@ -352,7 +355,7 @@ def objective(trial):
         })        
         _ = train_epoch(train_dataloader, model)
 
-        if HUMAN_IN_THE_LOOP and epoch > WARMUP_EPOCH:
+        if HUMAN_IN_THE_LOOP and epoch > WARMUP_EPOCH and ds['unlabel'].shape[0] > 0:
             # append pseudo labeled dataset with human in the loop step(mimic)
             permanent_appendix_dataset, temporary_appendix_dataset, dataset, latency = eval_epoch(ds['unlabel'], model, human_in_the_loop=True)
             total_latency += latency
@@ -373,14 +376,18 @@ def objective(trial):
 
     history_dataframe = pd.DataFrame(history)
     print(history_dataframe)
-    # dest = Path(cfg.catalog.result) 
+    dest = Path(cfg.catalog.result) 
     dest = dest.parent / f'{dest.stem}_{trial.number}{dest.suffix}'
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
     history_dataframe.to_csv(dest, index=False)
     best_score = history_dataframe['eval_buzzni'].max()
     return total_latency, float(best_score)
 
-study = optuna.create_study(directions=["minimize", "maximize"])
+study = optuna.create_study(
+    study_name = cfg.optuna.study_name,
+    storage = cfg.optuna.storage,
+    load_if_exists = cfg.optuna.load_if_exists,
+    directions=["minimize", "maximize"])
 # study = optuna.create_study(directions=["maximize"])
 study.optimize(objective, n_trials=5, timeout=3000)
 study.trials_dataframe.to_csv(cfg.trial_dest)

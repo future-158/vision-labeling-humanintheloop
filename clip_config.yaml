@@ -10,3 +10,9 @@ HUMAN_IN_THE_LOOP: true
 catalog:
   result: result/${API_VERSION}/clip_${exp_name}.csv
   trials_dataframe: result/${API_VERSION}/clip_${exp_name}_trials_dataframe.csv
+
+
+optuna:
+  study_name: ${exp_name}
+  storage: sqlite:///public_data/storage.db
+  load_if_exists: true
