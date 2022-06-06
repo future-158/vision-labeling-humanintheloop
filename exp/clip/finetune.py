@@ -124,9 +124,9 @@ def transforms(examples):
     examples['image'] =  [preprocess(image.resize((224,224)).convert('RGB')) for image in examples['image']]    
     return examples
 
-ds = ds.map(transforms, batched=True, batch_size=256)
+# ds = ds.map(transforms, batched=True, batch_size=256)
 
-# ds.set_transform(transforms)
+ds.set_transform(transforms)
 
 # updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)
 # updated_dataset['sentence2'][:5]
@@ -202,12 +202,11 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
             image_features = model.encode_image(image_input).float()
             image_features /= image_features.norm(dim=-1, keepdim=True)
         
-        text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-        top_probs, top_labels = text_probs.cpu().topk(5, dim=-1)
-        text_probs_numpy_li.append(
-            text_probs.cpu().numpy()
-
-        )
+            text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+            top_probs, top_labels = text_probs.cpu().topk(5, dim=-1)
+            text_probs_numpy_li.append(
+                text_probs.cpu().numpy()
+            )
 
     text_probs_numpy = np.concatenate(text_probs_numpy_li)
     metrics = compute_metrics(dataset, text_probs_numpy)
