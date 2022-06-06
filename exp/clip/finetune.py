@@ -7,7 +7,6 @@ import IPython.display
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import skimage
 import torch
 import tqdm
 from datasets import concatenate_datasets, load_dataset, load_metric
@@ -39,6 +38,8 @@ WARMUP_EPOCH = 1
 UPDATE_SIZE = 100
 DENOMINATOR = K
 
+DEBUG = True
+
 clip.available_models()
 # model, preprocess = clip.load("ViT-B/32")
 # model.cuda().eval()
@@ -53,6 +54,10 @@ model.eval()
 # vocab_size = model.vocab_size
 test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
 ds = load_dataset("imagefolder", data_dir="./data", split='train')
+
+if DEBUG:
+    test_ds = test_ds.select(range(100))
+    ds = ds.select(range(100))
 
 # ds['test'] = ds['test'].add_column('uid', list(range(len(ds['test']))))
 # ds = ds.add_column('uid', list(range(len(ds))))
@@ -276,7 +281,7 @@ class ImageCaptionDataset(Dataset):
 
     def __getitem__(self, idx):
         # images = preprocess(self.ds[idx]['image'])
-        images = self.ds[idx]['image']
+        images = torch.tensor(self.ds[idx]['image'])
         caption = clip.tokenize(self.ds[idx]['txt'])[0]
         return images,caption
 
