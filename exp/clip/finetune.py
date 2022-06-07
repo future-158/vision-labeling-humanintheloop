@@ -149,7 +149,6 @@ def compute_metrics(dataset, probs):
 
     # certain & correct
     TP_at_1 = (labels[certain] ==  preds[certain]).sum()
-
     # certain & false
     FP_at_1 = (labels[certain] !=  preds[certain]).sum()
 
@@ -166,7 +165,8 @@ def compute_metrics(dataset, probs):
     FP = FP_at_1  + FP_at_k
 
     # few percentage of FP_at_k could be rectified. so add to FP_at_k
-    TP_at_k = FP_at_k * np.min([1, UPDATE_SIZE / num_uncertain])
+    # up to 100 samples. fp_at_k and tp_at_k not differ except latency. 
+    TP_at_k += np.max(FP_at_k, 100)
     # penalize by K
     TP =  TP_at_1 + TP_at_k / K
     buzzni = TP / (TP + FP)
@@ -232,7 +232,7 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     uncertain_correct_at_1 = (labels[to_inspect] ==  preds[to_inspect]).sum()
     
     # uncertain & incorrect. but top k suggestion is correct. human need to click 1/5
-    uncertain_correct_at_k = top_k_accuracy_score(labels[to_inspect], preds[to_inspect], k = K, normalize=False, labels=class_ids) 
+    uncertain_correct_at_k = top_k_accuracy_score(labels[to_inspect], text_probs_numpy[to_inspect], k = K, normalize=False, labels=class_ids) 
     uncertain_incorrect_at_k = len(to_inspect) - uncertain_correct_at_k
 
     uncertain_correct_at_k -= uncertain_correct_at_1
