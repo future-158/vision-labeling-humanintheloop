@@ -1,6 +1,7 @@
 #custom ignore
-data/
 _*.py
+data/test
+data/train
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

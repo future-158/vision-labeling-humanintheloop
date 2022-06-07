@@ -9,3 +9,5 @@ optuna
 matplotlib
 scikit-learn
 pydrive
+ipykernel
+dvc[gdrive]

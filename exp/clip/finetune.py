@@ -66,6 +66,8 @@ id2txt = (
 
 id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
 text_tokens = clip.tokenize(id2txt.values()).to(device)
+class_ids = list(range(50))
+
 
 def load_saved_dataset(dataset_path):
     if Path(dataset_path).exists():
@@ -115,10 +117,10 @@ def load_saved_dataset(dataset_path):
         ds['test'] = test_ds # 100%
         
     ds = ds.map(transforms, batched=True, batch_size=256)
+    ds.save_to_disk(catalog.dataset_path)
     return ds
 
 ds = load_saved_dataset(catalog.dataset_path)
-class_ids = list(range(50))
 # ds.set_transform(transforms)
 
 # updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)

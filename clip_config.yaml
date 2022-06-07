@@ -18,7 +18,7 @@ UPDATE_SIZE: 100
 catalog:
   trial_result: result/${exp_name}_trial_result.csv
   trials_dataframe: result/${exp_name}_trials_dataframe.csv
-  dataset_path: data/clip_dataset_${HUMAN_IN_THE_LOOP}_${DEBUG}.csv
+  dataset_path: data/clip_dataset_${HUMAN_IN_THE_LOOP}_${DEBUG}
 
 optuna:
   study_name: ${exp_name}
