@@ -166,7 +166,7 @@ def compute_metrics(dataset, probs):
 
     # few percentage of FP_at_k could be rectified. so add to FP_at_k
     # up to 100 samples. fp_at_k and tp_at_k not differ except latency. 
-    TP_at_k += np.max(FP_at_k, 100)
+    TP_at_k += np.max([FP_at_k, 100])
     # penalize by K
     TP =  TP_at_1 + TP_at_k / K
     buzzni = TP / (TP + FP)
