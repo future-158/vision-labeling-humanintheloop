@@ -342,7 +342,7 @@ def objective(trial):
     test_metrics = eval_epoch(ds['test'], model)
 
     history.append({
-        'epoch': epoch,
+        'epoch': -1,
         'train_size': len(train_dataset), # variadic 
         'eval_size': len(ds['eval']), # fixed
         'unlabel_size': len(ds['unlabel']), # fixed
