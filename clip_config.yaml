@@ -1,5 +1,5 @@
-API_VERSION: 100 
-exp_name: clip_finetune_hil_${API_VERSION}
+API_VERSION: 101
+exp_name: clip_finetune_human_${API_VERSION}
 
 DEBUG: false
 
@@ -22,6 +22,6 @@ catalog:
 
 optuna:
   study_name: ${exp_name}
-  storage: sqlite:///result/${exp_name}.db
+  storage: "sqlite:///result/${exp_name}.db"
   load_if_exists: true
   n_trials: 10

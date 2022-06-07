@@ -66,6 +66,7 @@ id2txt = (
 
 id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
 text_tokens = clip.tokenize(id2txt.values()).to(device)
+
 def load_saved_dataset(dataset_path):
     if Path(dataset_path).exists():
         return load_from_disk(dataset_path)
