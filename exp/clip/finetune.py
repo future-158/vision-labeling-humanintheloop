@@ -166,7 +166,7 @@ def compute_metrics(dataset, probs):
     FP = FP_at_1  + FP_at_k
 
     # few percentage of FP_at_k could be rectified. so add to FP_at_k
-    TP_at_k = FP_at_k * np.min(1, UPDATE_SIZE / num_uncertain)
+    TP_at_k = FP_at_k * np.min([1, UPDATE_SIZE / num_uncertain])
     # penalize by K
     TP =  TP_at_1 + TP_at_k / K
     buzzni = TP / (TP + FP)
