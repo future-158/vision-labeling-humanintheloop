@@ -409,6 +409,7 @@ study = optuna.create_study(
     study_name = cfg.optuna.study_name,
     storage = cfg.optuna.storage,
     load_if_exists = cfg.optuna.load_if_exists,
+    skip_if_exists = cfg.optuna.skip_if_exists,
     directions=["minimize", "maximize"])
 # study = optuna.create_study(directions=["maximize"])
 
