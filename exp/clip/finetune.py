@@ -172,7 +172,7 @@ def compute_metrics(dataset, probs):
     buzzni = TP / (TP + FP)
 
     acc = accuracy_score(labels, preds)
-    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted', zero_division=0)
     return {
         'buzzni': buzzni,
         'acc_at_1': acc,
@@ -393,8 +393,8 @@ def objective(trial):
             'total_latency': total_latency,
         })        
 
-    history_dataframe = pd.DataFrame(history)
-    print(history_dataframe)
+        history_dataframe = pd.DataFrame(history)
+        print(history_dataframe)
     dest = Path(catalog.trial_result) 
     dest = dest.parent / f'{dest.stem}_{trial.number}{dest.suffix}'
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
