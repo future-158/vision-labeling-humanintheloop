@@ -18,9 +18,10 @@ UPDATE_SIZE: 100
 catalog:
   trial_result: result/${exp_name}_trial_result.csv
   trials_dataframe: result/${exp_name}_trials_dataframe.csv
+  dataset_path: data/clip_dataset_${HUMAN_IN_THE_LOOP}_${DEBUG}.csv
 
 optuna:
   study_name: ${exp_name}
-  storage: sqlite:///public_data/${exp_name}.db
+  storage: sqlite:///result/${exp_name}.db
   load_if_exists: true
   optuna.n_trials: 10

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 import tqdm
-from datasets import concatenate_datasets, load_dataset, load_metric
+from datasets import concatenate_datasets, load_dataset, load_metric, load_from_disk
 from omegaconf import OmegaConf
 from PIL import Image
 from pkg_resources import packaging
@@ -30,6 +30,7 @@ os.chdir(wd)
 """
 
 cfg = OmegaConf.load('clip_config.yaml')
+catalog = cfg.catalog
 
 THRESHOLD = cfg.THRESHOLD
 K = cfg.K
@@ -53,84 +54,70 @@ model.eval()
 # input_resolution = model.visual.input_resolution
 # context_length = model.context_length
 # vocab_size = model.vocab_size
-test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
-ds = load_dataset("imagefolder", data_dir="./data", split='train')
-class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
-
-if cfg.DEBUG:
-    test_ds = test_ds.select(range(100))
-    ds = ds.select(range(100))
-
-# ds['test'] = ds['test'].add_column('uid', list(range(len(ds['test']))))
-# ds = ds.add_column('uid', list(range(len(ds))))
-
-"""dataset methods
-rename_columns
-save_to_disk
-select
-shape
-shard
-shuffle
-sort
-to_pandas
-train_test_split
-update
-with_transform
-""" 
-
-# actually it is just class_id. but sklearn name this as labels
 
 
+def load_saved_dataset(dataset_path):
+    if Path(dataset_path).exists():
+        return load_from_disk(dataset_path)
 
-# true labels
-LABELS = ds.features['label'].names
-id2txt = (
-    pd.read_csv('data/catalog.csv', index_col=['index'])
-    ['en_final']
-    .astype(str)
-    .str.strip()
-    .to_dict()
-)
-id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
+    def tarnsform(example):
+        example['image'] = preprocess(example['image'].resize((224,224)).convert('RGB'))
+        return example
+    # prepare_ds = ds.map(tarnsform)   
 
-text_tokens = clip.tokenize(id2txt.values()).to(device)
+    # def encode(batch):
+    #     return tokenizer(batch["sentence1"], padding="longest", truncation=True, max_length=512, return_tensors="pt")
 
-new_column = [id2txt[index] for index in ds['label']]
-ds = ds.add_column("txt", new_column)
+    def transforms(examples):
+        # examples["pixel_values"] = [jitter(image.convert("RGB")) for image in examples["image"]]
+        examples['image'] =  [preprocess(image.resize((224,224)).convert('RGB')) for image in examples['image']]    
+        return examples
 
-new_column = [id2txt[index] for index in test_ds['label']]
-test_ds = test_ds.add_column("txt", new_column)
+    test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
+    ds = load_dataset("imagefolder", data_dir="./data", split='train')
+    class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
 
-ds = ds.shuffle(0).train_test_split(test_size=0.2)
+    if cfg.DEBUG:
+        test_ds = test_ds.select(range(100))
+        ds = ds.select(range(100))
 
-ds['eval'] = ds['test']
-if HUMAN_IN_THE_LOOP:
-    # assign 20% of test folder to real test set, 80% to unlabeled dataset.
-    # human in the loop pipeline use 80% data.
-    test_ds = test_ds.train_test_split(shuffle=True, seed=0, test_size=0.2)
-    ds['unlabel'] = test_ds['train'] # 80%
-    ds['test'] = test_ds['test'] # 20%
+    # true labels
+    LABELS = ds.features['label'].names
+    id2txt = (
+        pd.read_csv('data/catalog.csv', index_col=['index'])
+        ['en_final']
+        .astype(str)
+        .str.strip()
+        .to_dict()
+    )
 
-else:
-    ds['unlabel']  = ds['eval'].filter(lambda x: False) # empty dataset. for api consistency    
-    ds['test'] = test_ds # 100%
-    
-del test_ds
+    id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
+    text_tokens = clip.tokenize(id2txt.values()).to(device)
 
-def tarnsform(example):
-    example['image'] = preprocess(example['image'].resize((224,224)).convert('RGB'))
-    return example
-# prepare_ds = ds.map(tarnsform)   
+    new_column = [id2txt[index] for index in ds['label']]
+    ds = ds.add_column("txt", new_column)
 
-# def encode(batch):
-#     return tokenizer(batch["sentence1"], padding="longest", truncation=True, max_length=512, return_tensors="pt")
+    new_column = [id2txt[index] for index in test_ds['label']]
+    test_ds = test_ds.add_column("txt", new_column)
 
-def transforms(examples):
-    # examples["pixel_values"] = [jitter(image.convert("RGB")) for image in examples["image"]]
-    examples['image'] =  [preprocess(image.resize((224,224)).convert('RGB')) for image in examples['image']]    
-    return examples
+    ds = ds.shuffle(0).train_test_split(test_size=0.2)
 
-ds = ds.map(transforms, batched=True, batch_size=256)
+    ds['eval'] = ds['test']
+    if HUMAN_IN_THE_LOOP:
+        # assign 20% of test folder to real test set, 80% to unlabeled dataset.
+        # human in the loop pipeline use 80% data.
+        test_ds = test_ds.train_test_split(shuffle=True, seed=0, test_size=0.2)
+        ds['unlabel'] = test_ds['train'] # 80%
+        ds['test'] = test_ds['test'] # 20%
+
+    else:
+        ds['unlabel']  = ds['eval'].filter(lambda x: False) # empty dataset. for api consistency    
+        ds['test'] = test_ds # 100%
+        
+    ds = ds.map(transforms, batched=True, batch_size=256)
+    return ds
+
+ds = load_saved_dataset(catalog.dataset_path)
 
 # ds.set_transform(transforms)
 
@@ -382,6 +369,8 @@ def objective(trial):
     best_score = history_dataframe['eval_buzzni'].max()
     return total_latency, float(best_score)
 
+
+Path(cfg.optuna.storage).parent.mkdir(parents=True, exist_ok=True)
 study = optuna.create_study(
     study_name = cfg.optuna.study_name,
     storage = cfg.optuna.storage,
