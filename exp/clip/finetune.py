@@ -194,8 +194,7 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
     for step in tqdm.trange(steps): 
-        # image_input = torch.tensor(np.stack(dataset[step*batch_size:(step+1)*batch_size]['image'])).to(device)
-        image_input = torch.stack(dataset[step*batch_size:(step+1)*batch_size]['image']).to(device)
+        image_input = torch.tensor(np.stack(dataset[step*batch_size:(step+1)*batch_size]['image'])).to(device)
         image_features = model.encode_image(image_input).float()
         image_features /= image_features.norm(dim=-1, keepdim=True)
     
@@ -404,14 +403,21 @@ def objective(trial):
     return total_latency, float(best_score)
 
 
-Path(cfg.optuna.storage).parent.mkdir(parents=True, exist_ok=True)
+# Path(cfg.optuna.storage).parent.mkdir(parents=True, exist_ok=True)
+
+# if not cfg.optuna.load_if_exists:
+#     if Path(cfg.optuna.storage).exists():
+#     Path(cfg.optuna.storage).unlink()
+
 study = optuna.create_study(
     study_name = cfg.optuna.study_name,
-    storage = cfg.optuna.storage,
+    # storage = cfg.optuna.storage,
     load_if_exists = cfg.optuna.load_if_exists,
-    skip_if_exists = cfg.optuna.skip_if_exists,
     directions=["minimize", "maximize"])
 # study = optuna.create_study(directions=["maximize"])
+
+
+
 
 study.optimize(objective, n_trials=cfg.optuna.n_trials, timeout=30000)
 study.trials_dataframe.to_csv(catalog.trials_dataframe)
