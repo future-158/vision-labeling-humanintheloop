@@ -24,11 +24,6 @@ from torchvision.datasets import CIFAR100
 import optuna
 import clip
 
-"""run after vscode restarting mass up project folder. 
-wd = '/content/drive/MyDrive/project/buzzni'
-os.chdir(wd)
-"""
-
 cfg = OmegaConf.load('clip_config.yaml')
 catalog = cfg.catalog
 
@@ -37,24 +32,16 @@ K = cfg.K
 EPOCHS = cfg.EPOCHS
 BATCH_SIZE = cfg.BATCH_SIZE
 HUMAN_IN_THE_LOOP = cfg.HUMAN_IN_THE_LOOP
-UPDATE_SIZE = cfg.BATCH_SIZE
+UPDATE_SIZE = cfg.UPDATE_SIZE
 WARMUP_EPOCH = cfg.WARMUP_EPOCH
-
-# DENOMINATOR = K
+MODEL_NAME = cfg.MODEL_NAME
 
 
 clip.available_models()
-# model, preprocess = clip.load("ViT-B/32")
-# model.cuda().eval()
-
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load("ViT-B/32",device=device,jit=False) #Must set jit=False for training
+model, preprocess = clip.load(MODEL_NAME,device=device,jit=False) #Must set jit=False for training
 model.eval()
-
-# input_resolution = model.visual.input_resolution
-# context_length = model.context_length
-# vocab_size = model.vocab_size
-
+print("Model parameters:", f"{np.sum([int(np.prod(p.shape)) for p in model.parameters()]):,}")
 
 id2txt = (
     pd.read_csv('data/catalog.csv', index_col=['index'])
@@ -67,7 +54,6 @@ id2txt = (
 id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
 text_tokens = clip.tokenize(id2txt.values()).to(device)
 class_ids = list(range(50))
-
 
 def load_saved_dataset(dataset_path):
     if Path(dataset_path).exists():
@@ -364,19 +350,19 @@ def objective(trial):
             ds['unlabel'] = dataset
 
             if len(permanent_appendix_dataset):
-                permanent_appendix_dataset = ImageCaptionDataset(permanent_appendix_dataset)
-                temporary_appendix_dataset = ImageCaptionDataset(temporary_appendix_dataset)
-                
+                permanent_appendix_dataset = ImageCaptionDataset(permanent_appendix_dataset)            
                 train_dataset = torch.utils.data.ConcatDataset([train_dataset, permanent_appendix_dataset])
-                temporary_train_dataset = torch.utils.data.ConcatDataset([train_dataset, temporary_appendix_dataset])
-                train_dataloader = DataLoader(
-                    temporary_train_dataset,
-                    batch_size = BATCH_SIZE,
-                    # sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True, generator=torch.Generator().manual_seed(42))
-                    ) #Define your own dataloader
+
+            temporary_appendix_dataset = ImageCaptionDataset(temporary_appendix_dataset)
+            temporary_train_dataset = torch.utils.data.ConcatDataset([train_dataset, temporary_appendix_dataset])
+            train_dataloader = DataLoader(
+                temporary_train_dataset,
+                batch_size = BATCH_SIZE,
+                # sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True, generator=torch.Generator().manual_seed(42))
+                ) #Define your own dataloader
                 
                 # sanity check.
-                _ = next(iter(train_dataloader))
+            _ = next(iter(train_dataloader))
         # save untrained result
         eval_metrics = eval_epoch(ds['eval'], model)
         test_metrics = eval_epoch(ds['test'], model)

@@ -2,18 +2,16 @@ API_VERSION: 102
 exp_name: clip_finetune_human_${API_VERSION}
 
 DEBUG: false
-
-
+MODEL_NAME: ViT-B/16
 K: 5
-BATCH_SIZE: 32
+BATCH_SIZE: 64
 
-EPOCHS: 10
+EPOCHS: 5
 WARMUP_EPOCH: 0
 
 HUMAN_IN_THE_LOOP: true
-THRESHOLD: 0.5
-UPDATE_SIZE: 100
-
+THRESHOLD: 0.8
+UPDATE_SIZE: 500
 
 catalog:
   trial_result: result/${exp_name}_trial_result.csv
@@ -23,5 +21,5 @@ catalog:
 optuna:
   study_name: ${exp_name}
   # storage: "sqlite:///result/${exp_name}.db"
-  load_if_exists: false
-  n_trials: 10
+  load_if_exists: true
+  n_trials: 1
