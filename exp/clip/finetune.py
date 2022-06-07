@@ -117,7 +117,7 @@ def load_saved_dataset(dataset_path):
     return ds
 
 ds = load_saved_dataset(catalog.dataset_path)
-class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
+class_ids = [int(x) for x in np.sort(np.unique(ds['test']['label']))]
 # ds.set_transform(transforms)
 
 # updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)
