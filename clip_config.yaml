@@ -24,4 +24,4 @@ optuna:
   study_name: ${exp_name}
   storage: sqlite:///result/${exp_name}.db
   load_if_exists: true
-  optuna.n_trials: 10
+  n_trials: 10

@@ -23,3 +23,10 @@
 
 
 
+# codespace
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh /tmp/Miniconda3-latest-Linux-x86_64.sh
+bash /tmp/Miniconda3-latest-Linux-x86_64.sh -y -b
+~/miniconda3/bin/conda init bash
+source ~/.bashrc
+conda install python=3.8 pip -y
+pip install -r requirements.txt
