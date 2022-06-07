@@ -27,15 +27,17 @@ import clip
 cfg = OmegaConf.load('clip_config.yaml')
 catalog = cfg.catalog
 
+USE_PUBLIC_DATASET = cfg.USE_PUBLIC_DATASET
 THRESHOLD = cfg.THRESHOLD
 K = cfg.K
 EPOCHS = cfg.EPOCHS
 BATCH_SIZE = cfg.BATCH_SIZE
+EVAL_BATCH_SIZE = cfg.EVAL_BATCH_SIZE
+PREP_BATCH_SIZE = cfg.PREP_BATCH_SIZE
 HUMAN_IN_THE_LOOP = cfg.HUMAN_IN_THE_LOOP
 UPDATE_SIZE = cfg.UPDATE_SIZE
 WARMUP_EPOCH = cfg.WARMUP_EPOCH
 MODEL_NAME = cfg.MODEL_NAME
-
 
 clip.available_models()
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -59,25 +61,8 @@ def load_saved_dataset(dataset_path):
     if Path(dataset_path).exists():
         return load_from_disk(dataset_path)
 
-    def tarnsform(example):
-        example['image'] = preprocess(example['image'].resize((224,224)).convert('RGB'))
-        return example
-    # prepare_ds = ds.map(tarnsform)   
-
-    # def encode(batch):
-    #     return tokenizer(batch["sentence1"], padding="longest", truncation=True, max_length=512, return_tensors="pt")
-
-    def transforms(examples):
-        # examples["pixel_values"] = [jitter(image.convert("RGB")) for image in examples["image"]]
-        examples['image'] =  [preprocess(image.resize((224,224)).convert('RGB')) for image in examples['image']]    
-        return examples
-
     test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
     ds = load_dataset("imagefolder", data_dir="./data", split='train')
-
-    if cfg.DEBUG:
-        test_ds = test_ds.select(range(100))
-        ds = ds.select(range(100))
 
     # true labels
     LABELS = ds.features['label'].names
@@ -88,43 +73,50 @@ def load_saved_dataset(dataset_path):
     new_column = [id2txt[index] for index in test_ds['label']]
     test_ds = test_ds.add_column("txt", new_column)
 
+    # set evaluation set as 10% train_dir
     ds = ds.shuffle(0).train_test_split(test_size=0.2)
+    ds['eval'] = ds['test'] # rename to eval
 
-    ds['eval'] = ds['test']
-    if HUMAN_IN_THE_LOOP:
-        # assign 20% of test folder to real test set, 80% to unlabeled dataset.
-        # human in the loop pipeline use 80% data.
-        test_ds = test_ds.train_test_split(shuffle=True, seed=0, test_size=0.2)
-        ds['unlabel'] = test_ds['train'] # 80%
-        ds['test'] = test_ds['test'] # 20%
+    # after manually labeling, assign 20% of unlabel folder to test_set
+    # use rest of data as unlabel dataset.
 
-    else:
-        ds['unlabel']  = ds['eval'].filter(lambda x: False) # empty dataset. for api consistency    
-        ds['test'] = test_ds # 100%
-        
-    ds = ds.map(transforms, batched=True, batch_size=256)
+    # test_ds = test_ds.train_test_split(shuffle=True, seed=0, test_size=0.2)
+    # ds['test'] = test_ds['test'] # 20%
+
+    # empty dataset. iterative add datas.
+    ds['test'] = test_ds.filter(lambda x: False)
+    ds['unlabel'] = test_ds
+    
+    def tarnsform(example):
+        example['image'] = preprocess(example['image'].resize((224,224)).convert('RGB'))
+        return example
+
+    def transforms(examples):
+        # examples["pixel_values"] = [jitter(image.convert("RGB")) for image in examples["image"]]
+        examples['image'] =  [preprocess(image.resize((224,224)).convert('RGB')) for image in examples['image']]    
+        return examples
+
+    ds = ds.map(transforms, batched=True, batch_size=PREP_BATCH_SIZE)
     ds.save_to_disk(catalog.dataset_path)
     return ds
 
-ds = load_saved_dataset(catalog.dataset_path)
+
+if USE_PUBLIC_DATASET:
+    raise "not implemented"
+    # ds = load_cifar100()
+else:
+    ds = load_saved_dataset(catalog.dataset_path)
+
 # ds.set_transform(transforms)
 
-# updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)
-# updated_dataset['sentence2'][:5]
-# updated_dataset = dataset.map(lambda example: {'new_sentence': example['sentence1']}, remove_columns=['sentence1'])
-# updated_dataset.column_names
-# encoded_dataset = dataset.map(lambda examples: tokenizer(examples['sentence1']), batched=True)
-# encoded_dataset.column_names
-# encoded_dataset[0]
+if cfg.DEBUG:
+    ds['train'] = ds['train'].select(range(100))
+    ds['eval'] = ds['eval'].select(range(100))
+    ds['unlabel'] = ds['unlabel'].select(range(100))
+    ds['test'] = ds['test'].select(range(100))   
 
-# split ds['test'] to train / test
-# ds['test'][test]: real test set
-# ds['test'][train]: unlabeled set. for each epoch, human in the loop train / test
-# every epoch only 100 uncertain case studied. because time limit. this is also hyper parameter.
-
-def compute_metrics(dataset, probs):
+def compute_metrics(labels, probs):
     # labels = np.array(dataset['label'])
-    labels = np.array(dataset[:]['label'])
     num_samples = len(labels)
     preds = probs.argmax(axis=-1)
     certain = probs.max(axis=-1) > THRESHOLD
@@ -132,17 +124,13 @@ def compute_metrics(dataset, probs):
     num_certain = certain.sum()
     num_uncertain = (~certain).sum()
 
-
     # certain & correct
     TP_at_1 = (labels[certain] ==  preds[certain]).sum()
     # certain & false
     FP_at_1 = (labels[certain] !=  preds[certain]).sum()
 
-    # TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
-    
-    # uncertain & correct at top5
+    # uncertain & correct at top_k
     TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
-
 
     # ucertain & false
     FP_at_k = num_uncertain - TP_at_k
@@ -151,8 +139,10 @@ def compute_metrics(dataset, probs):
     FP = FP_at_1  + FP_at_k
 
     # few percentage of FP_at_k could be rectified. so add to FP_at_k
-    # up to 100 samples. fp_at_k and tp_at_k not differ except latency. 
-    TP_at_k += np.max([FP_at_k, 100])
+    # up to UPDATE_SIZE samples. fp_at_k and tp_at_k not differ except latency. 
+    # hyper parameter optimization step(with multi objective) penalize latency there.
+    TP_at_k += np.max([FP_at_k, UPDATE_SIZE])
+    
     # penalize by K
     TP =  TP_at_1 + TP_at_k / K
     buzzni = TP / (TP + FP)
@@ -171,7 +161,7 @@ def compute_metrics(dataset, probs):
 @torch.no_grad()
 def eval_epoch(dataset, model, human_in_the_loop=False):
     model.eval()
-    batch_size = 256
+    batch_size = EVAL_BATCH_SIZE
     steps, residue = np.divmod(len(dataset), batch_size)
     if residue > 0: steps += 1
     text_probs_numpy_li = []        
@@ -191,7 +181,8 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
         )
 
     text_probs_numpy = np.concatenate(text_probs_numpy_li)
-    metrics = compute_metrics(dataset, text_probs_numpy)
+    labels = np.array(dataset[:]['label']) # ? why :    
+    metrics = compute_metrics(labels, text_probs_numpy)
 
     if not human_in_the_loop:
         return metrics
@@ -200,20 +191,27 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     preds = text_probs_numpy.argmax(axis=-1)
     certain =  max_proba > THRESHOLD
 
-
     # select 100 case of most unsure case.
     to_inspect = np.argsort(max_proba)[:UPDATE_SIZE]
-    certain_index = np.flatnonzero(certain)
 
-    # 하위 100개 중 THRESHOLD 이상인 것들은 제거. 확실한 케이스에 대한 manual inspection 필요를 줄여줌
+    # for every epoch. add 10% of update_size(manual labelled) to test_set.
+    test_size = int(UPDATE_SIZE / 10)
+    
+    np.random.seed(0)
+    to_update = np.random.choice(to_inspect,test_size, replace=False)
+
+    to_inspect = np.setdiff1d(to_inspect, to_update)    
+    certain_index = np.flatnonzero(certain)
+    
+    # 하위 100개 중 THRESHOLD 이상인 것들은 제거. 확실한 케이스에 대한 manual inspection 필요를 줄여줌.
     to_inspect = np.setdiff1d(to_inspect, certain_index)
+    to_inspect = np.concatenate([to_inspect, to_update])
     
     # calculate latency
-    labels = np.array(dataset[:]['label']) # ? why :
-
     bad_inspect_time = 1
     worse_inspect_time = 2
     worst_inspect_time = 10
+
     # uncertain but still correct. human just enther next
     uncertain_correct_at_1 = (labels[to_inspect] ==  preds[to_inspect]).sum()
     
@@ -235,7 +233,7 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     
     # certain의 경우 중간에 human 검수 과정이 들어가지 않으므로 매 epoch마다 다시 계산해서 넣어줌
     temporary_appendix_dataset = dataset.select(certain_index)
-
+    
     # update label to top_1 prediction values
     if temporary_appendix_dataset.shape[0] > 0:
         temporary_appendix_dataset = (
@@ -248,9 +246,11 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
     whole_index = np.arange(text_probs_numpy.shape[0])
     keep_index = np.setdiff1d(whole_index, to_inspect)
 
-    # drop to_inspect
-    dataset = dataset.select(keep_index) 
-    return permanent_appendix_dataset, temporary_appendix_dataset, dataset, latency
+    test_update_dataset = dataset.select(to_update)
+
+    # drop manualy labelled data from unlabel dataset
+    updated_dataset = dataset.select(keep_index)     
+    return permanent_appendix_dataset, temporary_appendix_dataset, updated_dataset, test_update_dataset, latency
             
     # _, yhat = text_probs.cpu().topk(1, dim=-1)
     # cm = confusion_matrix(ds['label'], yhat.flatten())
@@ -305,7 +305,12 @@ def train_epoch(dl, model):
 def objective(trial):
     history = []
     total_latency = 0
-    lr = trial.suggest_float("lr", 1e-5, 1e-4, log=True)
+
+    # due to limited resources, fix lr to 5e-5.
+    # you need to change this code to optimizer hyper paremeters
+    lr = trial.suggest_categorical("lr", [5e-5]) 
+    # lr = trial.suggest_float("lr", 1e-5, 1e-4, log=True)
+    
     optimizer = optim.Adam(
         model.parameters(),
         lr=lr,
@@ -325,7 +330,7 @@ def objective(trial):
 
     # save zeroshot result
     eval_metrics = eval_epoch(ds['eval'], model)
-    test_metrics = eval_epoch(ds['test'], model)
+    # test_metrics = eval_epoch(ds['test'], model)
 
     history.append({
         'epoch': -1,
@@ -334,7 +339,7 @@ def objective(trial):
         'unlabel_size': len(ds['unlabel']), # fixed
         'test_size': len(ds['test']), # fixed
         **{f'eval_{k}':v for k, v in eval_metrics.items()},
-        **{f'test_{k}':v for k, v in test_metrics.items()},
+        # **{f'test_{k}':v for k, v in test_metrics.items()},
         'latency': 0,
         'total_latency': 0
     })        
@@ -344,10 +349,13 @@ def objective(trial):
 
         if HUMAN_IN_THE_LOOP and ds['unlabel'].shape[0] > 0:
             # append pseudo labeled dataset with human in the loop step(mimic)
-            permanent_appendix_dataset, temporary_appendix_dataset, dataset, latency = eval_epoch(ds['unlabel'], model, human_in_the_loop=True)
+            permanent_appendix_dataset, temporary_appendix_dataset, updated_dataset, test_update_dataset, latency = eval_epoch(ds['unlabel'], model, human_in_the_loop=True)
             total_latency += latency
             # if len(updated): ds['test']['train'] = updated
-            ds['unlabel'] = dataset
+
+            ds['test'] = concatenate_datasets([ds['test'], test_update_dataset])
+
+            ds['unlabel'] = updated_dataset
 
             if len(permanent_appendix_dataset):
                 permanent_appendix_dataset = ImageCaptionDataset(permanent_appendix_dataset)            
@@ -388,9 +396,7 @@ def objective(trial):
     best_score = history_dataframe['eval_buzzni'].max()
     return total_latency, float(best_score)
 
-
 # Path(cfg.optuna.storage).parent.mkdir(parents=True, exist_ok=True)
-
 # if not cfg.optuna.load_if_exists:
 #     if Path(cfg.optuna.storage).exists():
 #     Path(cfg.optuna.storage).unlink()
@@ -403,10 +409,8 @@ study = optuna.create_study(
 # study = optuna.create_study(directions=["maximize"])
 
 
-
-
 study.optimize(objective, n_trials=cfg.optuna.n_trials, timeout=30000)
-study.trials_dataframe.to_csv(catalog.trials_dataframe)
+study.trials_dataframe().to_csv(catalog.trials_dataframe)
 print("Number of finished trials: ", len(study.trials))
 # optuna.visualization.plot_pareto_front(study, target_names=["FLOPS", "accuracy"])
 
