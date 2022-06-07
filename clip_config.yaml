@@ -1,18 +1,26 @@
-API_VERSION: 1.1
-exp_name: clip_finetune_hil
+API_VERSION: 100 
+exp_name: clip_finetune_hil_${API_VERSION}
 
-THRESHOLD: 0.8
+DEBUG: false
+
+
 K: 5
-EPOCHS: 10
 BATCH_SIZE: 32
+
+EPOCHS: 10
+WARMUP_EPOCH: 3
+
 HUMAN_IN_THE_LOOP: true
+THRESHOLD: 0.8
+UPDATE_SIZE: 100
+
 
 catalog:
-  result: result/${API_VERSION}/clip_${exp_name}.csv
-  trials_dataframe: result/${API_VERSION}/clip_${exp_name}_trials_dataframe.csv
-
+  trial_result: result/${exp_name}_trial_result.csv
+  trials_dataframe: result/${exp_name}_trials_dataframe.csv
 
 optuna:
   study_name: ${exp_name}
-  storage: sqlite:///public_data/storage.db
+  storage: sqlite:///public_data/${exp_name}.db
   load_if_exists: true
+  optuna.n_trials: 10

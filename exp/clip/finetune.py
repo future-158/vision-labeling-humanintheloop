@@ -24,24 +24,23 @@ from torchvision.datasets import CIFAR100
 import optuna
 import clip
 
-
 """run after vscode restarting mass up project folder. 
 wd = '/content/drive/MyDrive/project/buzzni'
 os.chdir(wd)
 """
 
 cfg = OmegaConf.load('clip_config.yaml')
+
 THRESHOLD = cfg.THRESHOLD
 K = cfg.K
 EPOCHS = cfg.EPOCHS
 BATCH_SIZE = cfg.BATCH_SIZE
 HUMAN_IN_THE_LOOP = cfg.HUMAN_IN_THE_LOOP
+UPDATE_SIZE = cfg.BATCH_SIZE
+WARMUP_EPOCH = cfg.WARMUP_EPOCH
 
-WARMUP_EPOCH = 1
-UPDATE_SIZE = 100
-DENOMINATOR = K
+# DENOMINATOR = K
 
-DEBUG = True
 
 clip.available_models()
 # model, preprocess = clip.load("ViT-B/32")
@@ -58,7 +57,7 @@ test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
 ds = load_dataset("imagefolder", data_dir="./data", split='train')
 class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
 
-if DEBUG:
+if cfg.DEBUG:
     test_ds = test_ds.select(range(100))
     ds = ds.select(range(100))
 
@@ -376,7 +375,7 @@ def objective(trial):
 
     history_dataframe = pd.DataFrame(history)
     print(history_dataframe)
-    dest = Path(cfg.catalog.result) 
+    dest = Path(cfg.catalog.trial_result) 
     dest = dest.parent / f'{dest.stem}_{trial.number}{dest.suffix}'
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
     history_dataframe.to_csv(dest, index=False)
@@ -389,7 +388,7 @@ study = optuna.create_study(
     load_if_exists = cfg.optuna.load_if_exists,
     directions=["minimize", "maximize"])
 # study = optuna.create_study(directions=["maximize"])
-study.optimize(objective, n_trials=5, timeout=3000)
+study.optimize(objective, n_trials=cfg.optuna.n_trials, timeout=3000)
 study.trials_dataframe.to_csv(cfg.trial_dest)
 print("Number of finished trials: ", len(study.trials))
 # optuna.visualization.plot_pareto_front(study, target_names=["FLOPS", "accuracy"])
