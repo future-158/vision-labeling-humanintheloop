@@ -118,7 +118,7 @@ def load_saved_dataset(dataset_path):
     return ds
 
 ds = load_saved_dataset(catalog.dataset_path)
-class_ids = [int(x) for x in np.sort(np.unique(ds['test']['label']))]
+class_ids = list(range(50))
 # ds.set_transform(transforms)
 
 # updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)
@@ -140,100 +140,111 @@ def compute_metrics(dataset, probs):
     num_samples = len(labels)
     preds = probs.argmax(axis=-1)
     certain = probs.max(axis=-1) > THRESHOLD
-    
-    TP_at_1 = (labels[certain] ==  preds[certain]).sum()
 
-    # top_1으로 못맞춘 것들
-    FP_at_1 = (labels[certain] !=  preds[certain]).sum()
-
-    # TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
-    TP_at_k = top_k_accuracy_score(labels, probs, k = K, normalize=False, labels=class_ids) 
-    TP_at_k -= TP_at_1
-    TP =  TP_at_1 + TP_at_k / K
-
-    # label
-    # append, drop, 
-    # use additional label, additional label
-    # false positive penalty?
-    # every epoch train set/ valid set
-    # split by index
-    # append 
-    # drop    
     num_certain = certain.sum()
     num_uncertain = (~certain).sum()
 
-    # top k에서 못맞춘 것들
+
+    # certain & correct
+    TP_at_1 = (labels[certain] ==  preds[certain]).sum()
+
+    # certain & false
+    FP_at_1 = (labels[certain] !=  preds[certain]).sum()
+
+    # TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
+    
+    # uncertain & correct at top5
+    TP_at_k = top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=False, labels=class_ids) 
+
+
+    # ucertain & false
     FP_at_k = num_uncertain - TP_at_k
 
-    # top 1으로 못맞춘 경우 penalty가 더 들어감.
-    FP = FP_at_1 * K + FP_at_k
+    # certain & false is worse than uncertain and false(not in top5), but how much? both got wrong.
+    FP = FP_at_1  + FP_at_k
 
+    # few percentage of FP_at_k could be rectified. so add to FP_at_k
+    TP_at_k = FP_at_k * np.min(1, UPDATE_SIZE / num_uncertain)
+    # penalize by K
+    TP =  TP_at_1 + TP_at_k / K
     buzzni = TP / (TP + FP)
 
     acc = accuracy_score(labels, preds)
     precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
     return {
-        'accuracy': acc,
+        'buzzni': buzzni,
+        'acc_at_1': acc,
         'acc_at_k': top_k_accuracy_score(labels[~certain], probs[~certain], k = K, normalize=True, labels=class_ids), 
         'f1': f1,
         'precision': precision,
         'recall': recall,
-        'buzzni': buzzni
     }
 
+@torch.no_grad()
 def eval_epoch(dataset, model, human_in_the_loop=False):
     model.eval()
     batch_size = 256
     steps, residue = np.divmod(len(dataset), batch_size)
     if residue > 0: steps += 1
-   
     text_probs_numpy_li = []        
-    with torch.no_grad():
-        text_features = model.encode_text(text_tokens).float()
-        text_features /= text_features.norm(dim=-1, keepdim=True)
 
-        for step in tqdm.trange(steps): 
-            image_input = torch.tensor(np.stack(dataset[step*batch_size:(step+1)*batch_size]['image'])).to(device)
-            image_features = model.encode_image(image_input).float()
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-        
-            text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-            top_probs, top_labels = text_probs.cpu().topk(5, dim=-1)
-            text_probs_numpy_li.append(
-                text_probs.cpu().numpy()
-            )
+    text_features = model.encode_text(text_tokens).float()
+    text_features /= text_features.norm(dim=-1, keepdim=True)
+
+    for step in tqdm.trange(steps): 
+        # image_input = torch.tensor(np.stack(dataset[step*batch_size:(step+1)*batch_size]['image'])).to(device)
+        image_input = torch.stack(dataset[step*batch_size:(step+1)*batch_size]['image']).to(device)
+        image_features = model.encode_image(image_input).float()
+        image_features /= image_features.norm(dim=-1, keepdim=True)
+    
+        text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+        top_probs, top_labels = text_probs.cpu().topk(5, dim=-1)
+        text_probs_numpy_li.append(
+            text_probs.cpu().numpy()
+        )
 
     text_probs_numpy = np.concatenate(text_probs_numpy_li)
     metrics = compute_metrics(dataset, text_probs_numpy)
 
     if not human_in_the_loop:
-        model.train()
         return metrics
 
     max_proba = text_probs_numpy.max(axis=-1)
     preds = text_probs_numpy.argmax(axis=-1)
     certain =  max_proba > THRESHOLD
 
-  
-    uncertain = ~certain
+
+    # select 100 case of most unsure case.
     to_inspect = np.argsort(max_proba)[:UPDATE_SIZE]
     certain_index = np.flatnonzero(certain)
 
     # 하위 100개 중 THRESHOLD 이상인 것들은 제거. 확실한 케이스에 대한 manual inspection 필요를 줄여줌
-    uncertain_index = np.setdiff1d(to_inspect, certain_index)
-
+    to_inspect = np.setdiff1d(to_inspect, certain_index)
     
     # calculate latency
-    labels = np.array(dataset[:]['label'])
-    latency = (labels[uncertain_index] !=  preds[uncertain_index]).sum()
-   
-    # appendix_dataset = dataset.filter(lambda item: item['uid'] in to_filter)
-    # dataset = dataset.filter(lambda item: item['uid'] not in to_filter)            
-    # even_dataset = dataset.filter(lambda example, idx: idx % 2 == 0, with_indices=True)
-    # bert_dataset = concatenate_datasets([bookcorpus, wiki])
+    labels = np.array(dataset[:]['label']) # ? why :
 
+    bad_inspect_time = 1
+    worse_inspect_time = 2
+    worst_inspect_time = 10
+    # uncertain but still correct. human just enther next
+    uncertain_correct_at_1 = (labels[to_inspect] ==  preds[to_inspect]).sum()
+    
+    # uncertain & incorrect. but top k suggestion is correct. human need to click 1/5
+    uncertain_correct_at_k = top_k_accuracy_score(labels[to_inspect], preds[to_inspect], k = K, normalize=False, labels=class_ids) 
+    uncertain_incorrect_at_k = len(to_inspect) - uncertain_correct_at_k
+
+    uncertain_correct_at_k -= uncertain_correct_at_1
+
+    bad_inspect_taken = bad_inspect_time * uncertain_correct_at_1
+    worse_inspect_taken = worse_inspect_time * uncertain_correct_at_k
+    worst_inspect_taken = worst_inspect_time * uncertain_incorrect_at_k
+
+    latency = bad_inspect_taken + worse_inspect_taken + worst_inspect_taken
+    # uncertain & incorrect. and top k suggestion not contains correct label. human need to manually type correct label.
+    
     # uncertain 데이터의 경우 역설적으로  human이 확인하므로 certain해 져서 train_dataset에 permanently 추가됨
-    permanent_appendix_dataset = dataset.select(uncertain_index)
+    permanent_appendix_dataset = dataset.select(to_inspect)
     
     # certain의 경우 중간에 human 검수 과정이 들어가지 않으므로 매 epoch마다 다시 계산해서 넣어줌
     temporary_appendix_dataset = dataset.select(certain_index)
@@ -248,11 +259,10 @@ def eval_epoch(dataset, model, human_in_the_loop=False):
 
     # remove permanent_appendix_dataset from dataset
     whole_index = np.arange(text_probs_numpy.shape[0])
-    update_index = np.setdiff1d(whole_index, uncertain_index)
+    keep_index = np.setdiff1d(whole_index, to_inspect)
 
-    # drop uncertain_index
-    dataset = dataset.select(update_index) 
-    model.train()
+    # drop to_inspect
+    dataset = dataset.select(keep_index) 
     return permanent_appendix_dataset, temporary_appendix_dataset, dataset, latency
             
     # _, yhat = text_probs.cpu().topk(1, dim=-1)
@@ -325,44 +335,66 @@ def objective(trial):
         # sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True, generator=torch.Generator().manual_seed(42))
         ) #Define your own dataloader
 
-    for epoch in range(-1, EPOCHS):
-        # save untrained result
-        eval_metrics = eval_epoch(ds['eval'], model)
-        test_metrics = eval_epoch(ds['test'], model)
 
-        history.append({
-            'epoch': epoch,
-            'train_size': len(train_dataset), # variadic 
-            'eval_size': len(ds['eval']), # fixed
-            'unlabel_size': len(ds['unlabel']), # fixed
-            'test_size': len(ds['test']), # fixed
-            **{f'eval_{k}':v for k, v in eval_metrics.items()},
-            **{f'test_{k}':v for k, v in test_metrics.items()},
-        })        
+    # save zeroshot result
+    eval_metrics = eval_epoch(ds['eval'], model)
+    test_metrics = eval_epoch(ds['test'], model)
+
+    history.append({
+        'epoch': epoch,
+        'train_size': len(train_dataset), # variadic 
+        'eval_size': len(ds['eval']), # fixed
+        'unlabel_size': len(ds['unlabel']), # fixed
+        'test_size': len(ds['test']), # fixed
+        **{f'eval_{k}':v for k, v in eval_metrics.items()},
+        **{f'test_{k}':v for k, v in test_metrics.items()},
+        'latency': 0,
+        'total_latency': 0
+    })        
+
+    for epoch in range(EPOCHS):
         _ = train_epoch(train_dataloader, model)
 
-        if HUMAN_IN_THE_LOOP and epoch > WARMUP_EPOCH and ds['unlabel'].shape[0] > 0:
+        if HUMAN_IN_THE_LOOP and ds['unlabel'].shape[0] > 0:
             # append pseudo labeled dataset with human in the loop step(mimic)
             permanent_appendix_dataset, temporary_appendix_dataset, dataset, latency = eval_epoch(ds['unlabel'], model, human_in_the_loop=True)
             total_latency += latency
             # if len(updated): ds['test']['train'] = updated
             ds['unlabel'] = dataset
+
             if len(permanent_appendix_dataset):
                 permanent_appendix_dataset = ImageCaptionDataset(permanent_appendix_dataset)
                 temporary_appendix_dataset = ImageCaptionDataset(temporary_appendix_dataset)
+                
                 train_dataset = torch.utils.data.ConcatDataset([train_dataset, permanent_appendix_dataset])
+                temporary_train_dataset = torch.utils.data.ConcatDataset([train_dataset, temporary_appendix_dataset])
                 train_dataloader = DataLoader(
-                    torch.utils.data.ConcatDataset([train_dataset, temporary_appendix_dataset]), # not saving
+                    temporary_train_dataset,
                     batch_size = BATCH_SIZE,
                     # sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True, generator=torch.Generator().manual_seed(42))
                     ) #Define your own dataloader
                 
                 # sanity check.
                 _ = next(iter(train_dataloader))
+        # save untrained result
+        eval_metrics = eval_epoch(ds['eval'], model)
+        test_metrics = eval_epoch(ds['test'], model)
+
+        history.append({
+            'epoch': epoch,
+            'train_size': len(temporary_train_dataset), # variadic 
+            'eval_size': len(ds['eval']), # fixed
+            'unlabel_size': len(ds['unlabel']), # fixed
+            'test_size': len(ds['test']), # fixed
+            **{f'eval_{k}':v for k, v in eval_metrics.items()},
+            **{f'test_{k}':v for k, v in test_metrics.items()},
+            'latency': latency,
+            'total_latency': total_latency,
+        })        
 
     history_dataframe = pd.DataFrame(history)
     print(history_dataframe)
-    dest = Path(cfg.catalog.trial_result) 
+    dest = Path(catalog.trial_result) 
     dest = dest.parent / f'{dest.stem}_{trial.number}{dest.suffix}'
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
     history_dataframe.to_csv(dest, index=False)
@@ -377,8 +409,9 @@ study = optuna.create_study(
     load_if_exists = cfg.optuna.load_if_exists,
     directions=["minimize", "maximize"])
 # study = optuna.create_study(directions=["maximize"])
-study.optimize(objective, n_trials=cfg.optuna.n_trials, timeout=3000)
-study.trials_dataframe.to_csv(cfg.trial_dest)
+
+study.optimize(objective, n_trials=cfg.optuna.n_trials, timeout=30000)
+study.trials_dataframe.to_csv(catalog.trials_dataframe)
 print("Number of finished trials: ", len(study.trials))
 # optuna.visualization.plot_pareto_front(study, target_names=["FLOPS", "accuracy"])
 

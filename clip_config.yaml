@@ -1,4 +1,4 @@
-API_VERSION: 101
+API_VERSION: 102
 exp_name: clip_finetune_human_${API_VERSION}
 
 DEBUG: false
@@ -8,10 +8,10 @@ K: 5
 BATCH_SIZE: 32
 
 EPOCHS: 10
-WARMUP_EPOCH: 3
+WARMUP_EPOCH: 0
 
 HUMAN_IN_THE_LOOP: true
-THRESHOLD: 0.8
+THRESHOLD: 0.5
 UPDATE_SIZE: 100
 
 
@@ -23,5 +23,5 @@ catalog:
 optuna:
   study_name: ${exp_name}
   storage: "sqlite:///result/${exp_name}.db"
-  load_if_exists: true
+  load_if_exists: False
   n_trials: 10
