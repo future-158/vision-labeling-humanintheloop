@@ -23,5 +23,6 @@ catalog:
 optuna:
   study_name: ${exp_name}
   storage: "sqlite:///result/${exp_name}.db"
-  load_if_exists: False
+  # load_if_exists: false
+  skip_if_exists: true
   n_trials: 10
