@@ -85,7 +85,6 @@ def load_saved_dataset(dataset_path):
 
     test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
     ds = load_dataset("imagefolder", data_dir="./data", split='train')
-    class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
 
     if cfg.DEBUG:
         test_ds = test_ds.select(range(100))
@@ -118,7 +117,7 @@ def load_saved_dataset(dataset_path):
     return ds
 
 ds = load_saved_dataset(catalog.dataset_path)
-
+class_ids = [int(x) for x in np.sort(np.unique(test_ds['label']))]
 # ds.set_transform(transforms)
 
 # updated_dataset = dataset.map(lambda example, idx: {'sentence2': f'{idx}: ' + example['sentence2']}, with_indices=True)
