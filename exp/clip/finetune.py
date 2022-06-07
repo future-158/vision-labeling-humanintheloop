@@ -57,13 +57,10 @@ id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
 text_tokens = clip.tokenize(id2txt.values()).to(device)
 class_ids = list(range(50))
 
-def load_saved_dataset(dataset_path):
-    if Path(dataset_path).exists():
-        return load_from_disk(dataset_path)
+def make_dataset():
 
     test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
     ds = load_dataset("imagefolder", data_dir="./data", split='train')
-
     # true labels
     LABELS = ds.features['label'].names
 
@@ -97,15 +94,16 @@ def load_saved_dataset(dataset_path):
         return examples
 
     ds = ds.map(transforms, batched=True, batch_size=PREP_BATCH_SIZE)
-    ds.save_to_disk(catalog.dataset_path)
     return ds
 
 
-if USE_PUBLIC_DATASET:
-    raise "not implemented"
-    # ds = load_cifar100()
+if Path(catalog.dataset_path).exists():
+    ds = load_from_disk(catalog.dataset_path)
 else:
-    ds = load_saved_dataset(catalog.dataset_path)
+    ds = make_dataset()
+    ds.save_to_disk(catalog.dataset_path)
+    
+
 
 # ds.set_transform(transforms)
 
