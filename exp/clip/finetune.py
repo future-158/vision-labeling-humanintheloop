@@ -56,6 +56,16 @@ model.eval()
 # vocab_size = model.vocab_size
 
 
+id2txt = (
+    pd.read_csv('data/catalog.csv', index_col=['index'])
+    ['en_final']
+    .astype(str)
+    .str.strip()
+    .to_dict()
+)
+
+id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
+text_tokens = clip.tokenize(id2txt.values()).to(device)
 def load_saved_dataset(dataset_path):
     if Path(dataset_path).exists():
         return load_from_disk(dataset_path)
@@ -83,16 +93,6 @@ def load_saved_dataset(dataset_path):
 
     # true labels
     LABELS = ds.features['label'].names
-    id2txt = (
-        pd.read_csv('data/catalog.csv', index_col=['index'])
-        ['en_final']
-        .astype(str)
-        .str.strip()
-        .to_dict()
-    )
-
-    id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
-    text_tokens = clip.tokenize(id2txt.values()).to(device)
 
     new_column = [id2txt[index] for index in ds['label']]
     ds = ds.add_column("txt", new_column)

@@ -30,3 +30,6 @@ bash /tmp/Miniconda3-latest-Linux-x86_64.sh -y -b
 source ~/.bashrc
 conda install python=3.8 pip -y
 pip install -r requirements.txt
+# download data.tar.gz
+tar -xf data.tar.gz
+
