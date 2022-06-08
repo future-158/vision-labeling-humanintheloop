@@ -5,8 +5,8 @@ USE_PUBLIC_DATASET: false
 DEBUG: false
 MODEL_NAME: ViT-B/16
 K: 5
-BATCH_SIZE: 64
-EVAL_BATCH_SIZE: 256 # for evaluation step with no_grad
+BATCH_SIZE: 32
+EVAL_BATCH_SIZE: 32 # for evaluation step with no_grad
 PREP_BATCH_SIZE: 32 # for data preprocessing
 
 EPOCHS: 5
