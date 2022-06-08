@@ -1,28 +1,35 @@
 API_VERSION: 102
 exp_name: clip_finetune_human_v${API_VERSION}
-USE_PUBLIC_DATASET: false 
 
 DEBUG: false
+UPDATE_SIZE: 1000
 MODEL_NAME: ViT-B/16
+
 K: 5
 BATCH_SIZE: 32
-EVAL_BATCH_SIZE: 32 # for evaluation step with no_grad
-PREP_BATCH_SIZE: 32 # for data preprocessing
+EVAL_BATCH_SIZE: 128 # for evaluation step with no_grad
+PREP_BATCH_SIZE: 128 # for data preprocessing
 
 EPOCHS: 5
 WARMUP_EPOCH: 0
 
 HUMAN_IN_THE_LOOP: true
-THRESHOLD: 0.8
-UPDATE_SIZE: 500
+THRESHOLD: 0.5
 
 catalog:
   catalog: ./dataset/data/catalog.csv
   image_folder: ./dataset/data
   trial_result: result/${exp_name}_trial_result.csv
   trials_dataframe: result/${exp_name}_trials_dataframe.csv
-  dataset_path: data/clip_dataset
+  model_weight: result//${exp_name}_model_weight.pt
+  final_score: result/final_score.json
+  
+  train_ds_path: data/clip_train_ds
+  eval_ds_path: data/clip_eval_ds
+  test_ds_path: data/clip_test_ds
+  unlabelled_ds_path: data/clip_ds_unlabelled
 
+  
 
 optuna:
   study_name: ${exp_name}
