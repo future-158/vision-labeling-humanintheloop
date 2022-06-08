@@ -58,9 +58,9 @@ text_tokens = clip.tokenize(id2txt.values()).to(device)
 class_ids = list(range(50))
 
 def make_dataset():
-
-    test_ds = load_dataset("imagefolder", data_dir="./data", split='test')
-    ds = load_dataset("imagefolder", data_dir="./data", split='train')
+    ds = load_dataset("imagefolder", data_dir="data2", split='train')
+    test_ds = load_dataset("imagefolder", data_dir="data2", split='test')
+    
     # true labels
     LABELS = ds.features['label'].names
 

@@ -1,5 +1,5 @@
 API_VERSION: 102
-exp_name: clip_finetune_human_${API_VERSION}
+exp_name: clip_finetune_human_v${API_VERSION}
 USE_PUBLIC_DATASET: false 
 
 DEBUG: false
