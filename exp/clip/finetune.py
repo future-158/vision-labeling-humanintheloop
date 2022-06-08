@@ -46,7 +46,7 @@ model.eval()
 print("Model parameters:", f"{np.sum([int(np.prod(p.shape)) for p in model.parameters()]):,}")
 
 id2txt = (
-    pd.read_csv('data/catalog.csv', index_col=['index'])
+    pd.read_csv(catalog.catalog, index_col=['index'])
     ['en_final']
     .astype(str)
     .str.strip()
@@ -57,10 +57,14 @@ id2txt = {index : f"This is a photo of a {txt}" for index,txt in id2txt.items()}
 text_tokens = clip.tokenize(id2txt.values()).to(device)
 class_ids = list(range(50))
 
-def make_dataset():
-    ds = load_dataset("imagefolder", data_dir="data2", split='train')
-    test_ds = load_dataset("imagefolder", data_dir="data2", split='test')
-    
+
+if Path(catalog.dataset_path).exists():
+    ds = load_from_disk(catalog.dataset_path)
+
+else:
+    ds = load_dataset("imagefolder", data_dir=catalog.image_folder, split='train')
+    test_ds = load_dataset("imagefolder", data_dir=catalog.image_folder, split='test')
+
     # true labels
     LABELS = ds.features['label'].names
 
@@ -83,7 +87,7 @@ def make_dataset():
     # empty dataset. iterative add datas.
     ds['test'] = test_ds.filter(lambda x: False)
     ds['unlabel'] = test_ds
-    
+
     def tarnsform(example):
         example['image'] = preprocess(example['image'].resize((224,224)).convert('RGB'))
         return example
@@ -94,24 +98,15 @@ def make_dataset():
         return examples
 
     ds = ds.map(transforms, batched=True, batch_size=PREP_BATCH_SIZE)
-    return ds
-
-
-if Path(catalog.dataset_path).exists():
-    ds = load_from_disk(catalog.dataset_path)
-else:
-    ds = make_dataset()
     ds.save_to_disk(catalog.dataset_path)
-    
-
 
 # ds.set_transform(transforms)
-
 if cfg.DEBUG:
     ds['train'] = ds['train'].select(range(100))
     ds['eval'] = ds['eval'].select(range(100))
     ds['unlabel'] = ds['unlabel'].select(range(100))
     ds['test'] = ds['test'].select(range(100))   
+
 
 def compute_metrics(labels, probs):
     # labels = np.array(dataset['label'])
